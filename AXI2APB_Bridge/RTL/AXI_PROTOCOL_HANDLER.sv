@@ -54,7 +54,8 @@ module AXI_PROTOCOL_HANDLER #(
     input  wire                     trans_done_i,    // 트랜잭션 완료 신호
     input  wire                     trans_error_i,   // 트랜잭션 에러 신호
     output reg [3:0]                burst_len_o,     // 버스트 길이
-    output reg                      fifo_wren_o      // FIFO 쓰기 활성화
+    output reg                      fifo_wren_o,     // FIFO 쓰기 활성화
+    input  wire                     fifo_full        // FIFO 가득 참 신호
 );
 
     // AXI FSM 상태 정의
@@ -125,9 +126,12 @@ module AXI_PROTOCOL_HANDLER #(
             end
             
             WRITE_DATA: begin
-                wready_o = 1'b1;  // FIFO가 가득 차지 않았다고 가정
+                wready_o = !fifo_full;  // FIFO가 가득 차지 않았을 때만 준비 상태
+                
+                // wvalid_i가 활성화되고 wready_o가 활성화된 경우에만 FIFO에 쓰기
                 if (wvalid_i && wready_o) begin
-                    fifo_wren_o = 1'b1;
+                    fifo_wren_o = 1'b1;  // FIFO 쓰기 활성화
+                    
                     if (wlast_i) begin
                         axi_next_state = WRITE_RESP;
                     end

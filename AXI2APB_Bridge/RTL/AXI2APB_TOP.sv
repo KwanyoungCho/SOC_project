@@ -145,7 +145,8 @@ module AXI2APB_TOP #(
         .trans_done_i(trans_done),
         .trans_error_i(trans_error),
         .burst_len_o(burst_len),
-        .fifo_wren_o(fifo_wren)
+        .fifo_wren_o(fifo_wren),
+        .fifo_full(fifo_full)
     );
     
     // APB 프로토콜 처리기 인스턴스

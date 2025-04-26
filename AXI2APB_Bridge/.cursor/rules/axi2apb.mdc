@@ -1,9 +1,18 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
-[Project1. AXI2APB_Bridge_2025.pdf](mdc:Project1. AXI2APB_Bridge_2025.pdf) 이 프로젝트를 구현하고 있음 항상 참고해서 구현할것
-원하는 대로 동작하는 지 [BRIDGE_TOP_TB.sv](mdc:SIM/TB/BRIDGE_TOP_TB.sv) 이 테스트 벤치를 확인해서 이에 맞게 구현할 것
+Num of slaves : 2
+Data width : Fixed to 4B
+Address ranges:
+  - slave_0 : 0x0001_F000 ~ 0x0001_FFFF
+  - slave_1 : 0x0002_F000 ~ 0x0002_FFFF
+  *Accesses to other addresses are blocked for testing
+Burst type: FIXED, INC
+Burest length: 1~16 transfers
+Goal: burst read/write operations via AXI2APB bridge
+
+원하는 대로 동작하는 지  테스트 벤치를 확인해서 이에 맞게 구현할 것
 테스트 벤치는 절대 수정하지 말것
 

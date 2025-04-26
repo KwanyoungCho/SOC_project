@@ -24,18 +24,20 @@ module APB_PROTOCOL_HANDLER #(
     output reg                      trans_done_o,    // 트랜잭션 완료 신호
     output reg                      trans_error_o,   // 트랜잭션 에러 신호
     input  wire [3:0]               burst_len_i,     // 버스트 길이
-    input  wire                     fifo_rden_o      // FIFO 읽기 활성화
+    output reg                      fifo_rden_o      // FIFO 읽기 활성화
 );
 
     // APB 상태 정의
-    typedef enum logic [1:0] {
-        IDLE = 2'b00,
-        SETUP = 2'b01,
-        ACCESS = 2'b10
+    typedef enum logic [2:0] {
+        IDLE = 3'b000,
+        FIFO_READ = 3'b001,
+        SETUP = 3'b010,
+        ACCESS = 3'b011,
+        DONE = 3'b100
     } apb_state_t;
     
     // 내부 레지스터
-    reg [1:0]                   apb_state, apb_next_state;
+    reg [2:0]                   apb_state, apb_next_state;
     reg [3:0]                   burst_cnt;
     reg                         wr_trans_reg;
     reg                         rd_trans_reg;
@@ -68,12 +70,21 @@ module APB_PROTOCOL_HANDLER #(
     // APB 상태 전이 로직
     always_comb begin
         apb_next_state = apb_state;
+        fifo_rden_o = 1'b0;  // 기본적으로 FIFO 읽기 비활성화
         
         case (apb_state)
             IDLE: begin
                 if (wr_trans_reg || rd_trans_reg) begin
-                    apb_next_state = SETUP;
+                    if (wr_trans_reg) 
+                        apb_next_state = FIFO_READ;  // 쓰기 전에 FIFO에서 데이터 읽기
+                    else
+                        apb_next_state = SETUP;  // 읽기는 바로 SETUP으로
                 end
+            end
+            
+            FIFO_READ: begin
+                fifo_rden_o = 1'b1;  // FIFO 읽기 활성화
+                apb_next_state = SETUP;
             end
             
             SETUP: begin
@@ -84,12 +95,19 @@ module APB_PROTOCOL_HANDLER #(
                 if (pready_i) begin
                     if (burst_cnt < burst_len_i) begin
                         // 버스트 진행 중 - 추가 전송
-                        apb_next_state = SETUP;
+                        if (wr_trans_reg)
+                            apb_next_state = FIFO_READ;  // 다음 데이터를 FIFO에서 읽기
+                        else
+                            apb_next_state = SETUP;  // 읽기는 바로 SETUP으로
                     end else begin
                         // 트랜잭션 완료
-                        apb_next_state = IDLE;
+                        apb_next_state = DONE;
                     end
                 end
+            end
+            
+            DONE: begin
+                apb_next_state = IDLE;
             end
             
             default: apb_next_state = IDLE;
@@ -121,7 +139,6 @@ module APB_PROTOCOL_HANDLER #(
                 wr_trans_reg <= 1'b1;
                 rd_trans_reg <= 1'b0;
                 addr_reg <= trans_addr_i;
-                wdata_reg <= trans_data_i;
                 burst_cnt <= 4'b0000;
             end else if (rd_trans_i) begin
                 rd_trans_reg <= 1'b1;
@@ -139,6 +156,11 @@ module APB_PROTOCOL_HANDLER #(
                     trans_error_o <= 1'b0;
                 end
                 
+                FIFO_READ: begin
+                    // FIFO 데이터를 읽어서 wdata_reg에 저장
+                    wdata_reg <= trans_data_i;
+                end
+                
                 SETUP: begin
                     // APB 셋업 단계
                     // 유효한 주소 범위 검증
@@ -153,11 +175,12 @@ module APB_PROTOCOL_HANDLER #(
                     psel_o <= slave_select(addr_reg);
                     
                     if (wr_trans_reg) begin
-                        // 쓰기 데이터 설정
+                        // 쓰기 데이터 설정 - FIFO에서 읽은 데이터 사용
                         pwdata_o <= wdata_reg;
                     end
                     
                     penable_o <= 1'b0;
+                    trans_done_o <= 1'b0;
                 end
                 
                 ACCESS: begin
@@ -178,14 +201,17 @@ module APB_PROTOCOL_HANDLER #(
                             // 버스트 계속
                             addr_reg <= addr_reg + 4;  // 4바이트씩 증가 (32비트 전송)
                             burst_cnt <= burst_cnt + 1;
-                        end else begin
-                            // 트랜잭션 완료
-                            wr_trans_reg <= 1'b0;
-                            rd_trans_reg <= 1'b0;
                         end
                     end else begin
                         trans_done_o <= 1'b0;
                     end
+                end
+                
+                DONE: begin
+                    // 트랜잭션 완료
+                    wr_trans_reg <= 1'b0;
+                    rd_trans_reg <= 1'b0;
+                    trans_done_o <= 1'b0;
                 end
             endcase
         end
