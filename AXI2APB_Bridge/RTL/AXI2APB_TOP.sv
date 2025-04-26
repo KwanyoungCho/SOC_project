@@ -57,208 +57,262 @@ module AXI2APB_TOP #(
 );
 
     // fill your code.
-    
+    // ---------------------------------------------------------------------------
+    // Address decoder (two 4‑KB windows)
+    // ---------------------------------------------------------------------------
+    function automatic logic [1:0] decode_psel(input logic [ADDR_WIDTH-1:0] a);
+        if (a[31:12] == 20'h0001F)      decode_psel = 2'b01; // 0x0001_F000
+        else if (a[31:12] == 20'h0002F) decode_psel = 2'b10; // 0x0002_F000
+        else                            decode_psel = 2'b00; // unreachable in spec
+    endfunction
 
-// -------- address decoder --------
-function automatic logic [1:0] decode_psel(input logic [ADDR_WIDTH-1:0] a);
-    if (a[31:12] == 20'h0001F) decode_psel = 2'b01;
-    else if (a[31:12] == 20'h0002F) decode_psel = 2'b10;
-    else decode_psel = 2'b00;
-endfunction
+    // ---------------------------------------------------------------------------
+    // Encoded command : 48 bits
+    //   [0]  is_write  | [1] is_incr | [5:2] len_m1 | [37:6] addr
+    // ---------------------------------------------------------------------------
+    localparam CMD_W = 48;
+    localparam LG2   = 4;   // FIFO depth = 16
 
-// -------- constants --------
-localparam CMD_W   = 50;                    // command + id
-localparam LG2     = 4;                     // FIFO depth 16
-localparam WPKT_W  = DATA_WIDTH + 1;        // {wid, data}
-localparam BPKT_W  = 3;                     // {id, bresp}
-localparam RPKT_W  = DATA_WIDTH + 4;        // {id, rlast, rresp, data}
+    // ---------------------------------------------------------------------------
+    // FIFO declarations (WRITE‑cmd, READ‑cmd, WDATA, BRESP, RDATA)
+    // ---------------------------------------------------------------------------
+    logic             wcmd_full, wcmd_empty, wcmd_wren, wcmd_rden;
+    logic [CMD_W-1:0] wcmd_wdata, wcmd_rdata;
+    logic             rcmd_full, rcmd_empty, rcmd_wren, rcmd_rden;
+    logic [CMD_W-1:0] rcmd_wdata, rcmd_rdata;
+    logic             wdat_full, wdat_empty, wdat_wren, wdat_rden;
+    logic [DATA_WIDTH-1:0] wdat_rdata;
+    logic             bq_full,  bq_empty,  bq_wren,  bq_rden;
+    logic [1:0]       bq_wdata, bq_rdata;
+    localparam RPKT_W = DATA_WIDTH + 3;
+    logic             rp_full,  rp_empty,  rp_wren,  rp_rden;
+    logic [RPKT_W-1:0] rp_wdata, rp_rdata;
 
-// -------- FIFOs --------
-// -------------------------------------------------------------
-// FIFO declarations (explicit – removed macro for compatibility)
-// -------------------------------------------------------------
-// WRITE‑command FIFO
-logic             wcmd_full, wcmd_empty, wcmd_wren, wcmd_rden;
-logic [CMD_W-1:0] wcmd_wdata, wcmd_rdata;
-BRIDGE_FIFO #(
-    .DEPTH_LG2 (LG2),
-    .DATA_WIDTH(CMD_W)
-) u_wcmd_fifo (
-    .clk      (clk),
-    .rst_n    (rst_n),
-    .full_o   (wcmd_full),
-    .wren_i   (wcmd_wren),
-    .wdata_i  (wcmd_wdata),
-    .empty_o  (wcmd_empty),
-    .rden_i   (wcmd_rden),
-    .rdata_o  (wcmd_rdata)
-);
+    //  ⮕ WRITE‑cmd FIFO
+    BRIDGE_FIFO #(.DEPTH_LG2(LG2), .DATA_WIDTH(CMD_W)) u_wcmd_fifo(
+        .* ,   // positional elided for brevity
+        .full_o(wcmd_full), .empty_o(wcmd_empty),
+        .wren_i(wcmd_wren), .wdata_i(wcmd_wdata),
+        .rden_i(wcmd_rden), .rdata_o(wcmd_rdata));
+    //  ⮕ READ‑cmd FIFO
+    BRIDGE_FIFO #(.DEPTH_LG2(LG2), .DATA_WIDTH(CMD_W)) u_rcmd_fifo(
+        .* ,
+        .full_o(rcmd_full), .empty_o(rcmd_empty),
+        .wren_i(rcmd_wren), .wdata_i(rcmd_wdata),
+        .rden_i(rcmd_rden), .rdata_o(rcmd_rdata));
+    //  ⮕ WDATA FIFO
+    BRIDGE_FIFO #(.DEPTH_LG2(LG2), .DATA_WIDTH(DATA_WIDTH)) u_wdat_fifo(
+        .* ,
+        .full_o(wdat_full), .empty_o(wdat_empty),
+        .wren_i(wdat_wren), .wdata_i(wdata_i),    // push path
+        .rden_i(wdat_rden), .rdata_o(wdat_rdata));
+    //  ⮕ BRESP FIFO
+    BRIDGE_FIFO #(.DEPTH_LG2(LG2), .DATA_WIDTH(2)) u_bq(
+        .* , .full_o(bq_full), .empty_o(bq_empty), .wren_i(bq_wren), .wdata_i(bq_wdata),
+        .rden_i(bq_rden), .rdata_o(bq_rdata));
+    //  ⮕ RDATA FIFO
+    BRIDGE_FIFO #(.DEPTH_LG2(LG2), .DATA_WIDTH(RPKT_W)) u_rp(
+        .* , .full_o(rp_full), .empty_o(rp_empty), .wren_i(rp_wren), .wdata_i(rp_wdata),
+        .rden_i(rp_rden), .rdata_o(rp_rdata));
 
-// READ‑command FIFO
-logic             rcmd_full, rcmd_empty, rcmd_wren, rcmd_rden;
-logic [CMD_W-1:0] rcmd_wdata, rcmd_rdata;
-BRIDGE_FIFO #(
-    .DEPTH_LG2 (LG2),
-    .DATA_WIDTH(CMD_W)
-) u_rcmd_fifo (
-    .clk      (clk),
-    .rst_n    (rst_n),
-    .full_o   (rcmd_full),
-    .wren_i   (rcmd_wren),
-    .wdata_i  (rcmd_wdata),
-    .empty_o  (rcmd_empty),
-    .rden_i   (rcmd_rden),
-    .rdata_o  (rcmd_rdata)
-);
+    // ---------------------------------------------------------------------------
+    // AXI -> FIFO handshakes
+    // ---------------------------------------------------------------------------
+    assign awready_o = ~wcmd_full;
+    assign wready_o  = ~wdat_full;
+    assign arready_o = ~rcmd_full;
 
-// WDATA FIFO {wid,data}
-logic                 wdat_full, wdat_empty, wdat_wren, wdat_rden;
-logic [WPKT_W-1:0]    wdat_wdata, wdat_rdata;
-BRIDGE_FIFO #(
-    .DEPTH_LG2 (LG2),
-    .DATA_WIDTH(WPKT_W)
-) u_wdat_fifo (
-    .clk      (clk),
-    .rst_n    (rst_n),
-    .full_o   (wdat_full),
-    .wren_i   (wdat_wren),
-    .wdata_i  (wdat_wdata),
-    .empty_o  (wdat_empty),
-    .rden_i   (wdat_rden),
-    .rdata_o  (wdat_rdata)
-);
+    // pack command payloads
+    assign wcmd_wren          = awvalid_i & awready_o;
+    assign wcmd_wdata         = {10'b0, awaddr_i, awlen_i, (awburst_i==2'b01), 1'b1};
+    assign rcmd_wren          = arvalid_i & arready_o;
+    assign rcmd_wdata         = {10'b0, araddr_i, arlen_i, (arburst_i==2'b01), 1'b0};
+    assign wdat_wren          = wvalid_i & wready_o;
 
-// BRESP FIFO {id,bresp}
-logic            bq_full, bq_empty, bq_wren, bq_rden;
-logic [BPKT_W-1:0] bq_wdata, bq_rdata;
-BRIDGE_FIFO #(
-    .DEPTH_LG2 (LG2),
-    .DATA_WIDTH(BPKT_W)
-) u_bq (
-    .clk      (clk),
-    .rst_n    (rst_n),
-    .full_o   (bq_full),
-    .wren_i   (bq_wren),
-    .wdata_i  (bq_wdata),
-    .empty_o  (bq_empty),
-    .rden_i   (bq_rden),
-    .rdata_o  (bq_rdata)
-);
+    // ---------------------------------------------------------------------------
+    // WRITE‑side FSM : generates *w_* APB bus signals
+    // ---------------------------------------------------------------------------
 
-// RDATA FIFO {id,rlast,rresp,data}
-logic                 rp_full, rp_empty, rp_wren, rp_rden;
-logic [RPKT_W-1:0]    rp_wdata, rp_rdata;
-BRIDGE_FIFO #(
-    .DEPTH_LG2 (LG2),
-    .DATA_WIDTH(RPKT_W)
-) u_rp (
-    .clk      (clk),
-    .rst_n    (rst_n),
-    .full_o   (rp_full),
-    .wren_i   (rp_wren),
-    .wdata_i  (rp_wdata),
-    .empty_o  (rp_empty),
-    .rden_i   (rp_rden),
-    .rdata_o  (rp_rdata)
-);
+    typedef enum logic [1:0] {W_IDLE, W_SETUP, W_ENABLE} wstate_e;
+    wstate_e wst, wst_n;
+    logic [4:0]        wcnt, wcnt_n;  // beats left
+    logic [ADDR_WIDTH-1:0] waddr, waddr_n;
+    logic              wincr, wincr_n;
 
-// ---------------------------------------------------------------- AXI → FIFO handshakes --------
-assign awready_o  = ~wcmd_full;
-assign arready_o  = ~rcmd_full;
-assign wready_o   = ~wdat_full;
+    // APB bus (WRITE‑generated)
+    logic [ADDR_WIDTH-1:0] w_paddr;
+    logic [DATA_WIDTH-1:0] w_pwdata;
+    logic [1:0]            w_psel;
+    logic                  w_pwrite, w_penable;
 
-assign wcmd_wren  = awvalid_i & awready_o;
-assign wcmd_wdata = {11'b0, awaddr_i, awlen_i, (awburst_i==2'b01), awid_i, 1'b1};
+    // Sequential
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            wst   <= W_IDLE; wcnt <= 0; waddr <= 0; wincr <= 1'b0;
+        end else begin
+            wst   <= wst_n;  wcnt <= wcnt_n; waddr <= waddr_n; wincr <= wincr_n;
+        end
+    end
 
-assign rcmd_wren  = arvalid_i & arready_o;
-assign rcmd_wdata = {11'b0, araddr_i, arlen_i, (arburst_i==2'b01), arid_i, 1'b0};
+    // Combinational defaults
+    always_comb begin
+        // default APB‑WRITE bus inactive
+        w_paddr   = '0; w_pwdata = '0; w_psel = 2'b00;
+        w_pwrite  = 1'b0; w_penable = 1'b0;
 
-assign wdat_wren  = wvalid_i & wready_o;
-assign wdat_wdata = {wid_i, wdata_i};
+        // FIFO default controls
+        wcmd_rden = 1'b0; wdat_rden = 1'b0;
+        bq_wren   = 1'b0; bq_wdata = 2'b00;
 
-// -------- Write FSM --------
-typedef enum logic [1:0] {W_IDLE, W_SETUP, W_ENABLE} wstate_e;
-wstate_e wst, wst_n;
-logic [4:0]  wcnt, wcnt_n;
-logic [ADDR_WIDTH-1:0] waddr, waddr_n;
-logic wincr, wincr_n, w_id, w_id_n;
+        // next‑state defaults
+        wst_n = wst; wcnt_n = wcnt; waddr_n = waddr; wincr_n = wincr;
 
-// APB signals (write path)
-logic [ADDR_WIDTH-1:0] w_paddr; logic [DATA_WIDTH-1:0] w_pwdata; logic [1:0] w_psel; logic w_pwrite, w_penable;
+        unique case (wst)
+            W_IDLE: begin
+                if (!wcmd_empty) begin
+                    wcmd_rden = 1'b1;
+                    wcnt_n    = wcmd_rdata[5:2];
+                    waddr_n   = wcmd_rdata[37:6];
+                    wincr_n   = wcmd_rdata[1];
+                    wst_n     = W_SETUP;
+                end
+            end
+            W_SETUP: begin
+                if (!wdat_empty) begin
+                    w_paddr   = waddr; w_pwdata = wdat_rdata;
+                    w_psel    = decode_psel(waddr);
+                    w_pwrite  = 1'b1;              // SETUP
+                    wst_n     = W_ENABLE;          // advance
+                end
+            end
+            W_ENABLE: begin
+                w_paddr   = waddr; w_pwdata = wdat_rdata;
+                w_psel    = decode_psel(waddr);
+                w_pwrite  = 1'b1; w_penable = 1'b1;
+                if (pready_i) begin
+                    wdat_rden = 1'b1;              // consume data beat
+                    if (wcnt == 0) begin           // burst done
+                        bq_wren  = 1'b1; bq_wdata = 2'b00; // OKAY
+                        wst_n    = W_IDLE;
+                    end else begin
+                        wcnt_n   = wcnt - 1;
+                        waddr_n  = wincr ? (waddr + 4) : waddr;
+                        wst_n    = W_SETUP;
+                    end
+                end
+            end
+        endcase
+    end
 
-always_ff @(posedge clk or negedge rst_n) begin
-    if(!rst_n) begin wst<=W_IDLE; wcnt<=0; waddr<=0; wincr<=0; w_id<=0; end
-    else begin wst<=wst_n; wcnt<=wcnt_n; waddr<=waddr_n; wincr<=wincr_n; w_id<=w_id_n; end
-end
+    // ---------------------------------------------------------------------------
+    // READ‑side FSM : generates *r_* APB bus signals
+    // ---------------------------------------------------------------------------
 
-always_comb begin
-    // defaults
-    w_paddr='0; w_pwdata='0; w_psel=2'b00; w_pwrite=0; w_penable=0;
-    wcmd_rden=0; wdat_rden=0; bq_wren=0; bq_wdata='0;
-    wst_n=wst; wcnt_n=wcnt; waddr_n=waddr; wincr_n=wincr; w_id_n=w_id;
+    typedef enum logic [1:0] {R_IDLE, R_SETUP, R_ENABLE} rstate_e;
+    rstate_e rstt, rstt_n;
+    logic [4:0]        rcnt, rcnt_n;
+    logic [ADDR_WIDTH-1:0] raddr, raddr_n;
+    logic              rincr, rincr_n;
 
-    unique case(wst)
-        W_IDLE: if(!wcmd_empty) begin
-            wcmd_rden=1; wcnt_n=wcmd_rdata[5:2]; waddr_n=wcmd_rdata[38:7]; wincr_n=wcmd_rdata[1]; w_id_n=wcmd_rdata[6];
-            wst_n=W_SETUP; end
+    // APB bus (READ‑generated)
+    logic [ADDR_WIDTH-1:0] r_paddr;
+    logic [1:0]            r_psel;
+    logic                  r_penable;
 
-        W_SETUP: if(!wdat_empty) begin
-            if(wdat_rdata[WPKT_W-1] != w_id) begin $display("[FATAL] WID mismatch at %0t", $time); $fatal; end
-            w_paddr=waddr; w_pwdata=wdat_rdata[DATA_WIDTH-1:0]; w_psel=decode_psel(waddr); w_pwrite=1; wst_n=W_ENABLE; end
+    // Sequential
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            rstt <= R_IDLE; rcnt <= 0; raddr <= 0; rincr <= 1'b0;
+        end else begin
+            rstt <= rstt_n; rcnt <= rcnt_n; raddr <= raddr_n; rincr <= rincr_n;
+        end
+    end
 
-        W_ENABLE: begin
-            w_paddr=waddr; w_pwdata=wdat_rdata[DATA_WIDTH-1:0]; w_psel=decode_psel(waddr); w_pwrite=1; w_penable=1;
-            if(pready_i) begin
-                wdat_rden=1;
-                if(wcnt==0) begin bq_wren=1; bq_wdata={w_id,2'b00}; wst_n=W_IDLE; end
-                else begin wcnt_n=wcnt-1; waddr_n=wincr ? (waddr+4) : waddr; wst_n=W_SETUP; end
-            end end
-    endcase
-end
+    // Combinational defaults
+    always_comb begin
+        r_paddr   = '0; r_psel = 2'b00; r_penable = 1'b0;
+        rcmd_rden = 1'b0; rp_wren = 1'b0; rp_wdata = '0;
 
-// -------- Read FSM --------
-typedef enum logic [1:0] {R_IDLE, R_SETUP, R_ENABLE} rstate_e;
-rstate_e rstt, rstt_n; logic [4:0] rcnt, rcnt_n; logic [ADDR_WIDTH-1:0] raddr, raddr_n; logic rincr, rincr_n, r_id, r_id_n;
+        rstt_n = rstt; rcnt_n = rcnt; raddr_n = raddr; rincr_n = rincr;
 
-logic [ADDR_WIDTH-1:0] r_paddr; logic [1:0] r_psel; logic r_penable;
+        // NOTE: READ FSM must not steal bus once WRITE is active; arbitration
+        // is handled in the bus multiplexer later.
 
-always_ff @(posedge clk or negedge rst_n) begin
-    if(!rst_n) begin rstt<=R_IDLE; rcnt<=0; raddr<=0; rincr<=0; r_id<=0; end
-    else begin rstt<=rstt_n; rcnt<=rcnt_n; raddr<=raddr_n; rincr<=rincr_n; r_id<=r_id_n; end
-end
+        case (rstt)
+            R_IDLE: begin
+                if (!rcmd_empty) begin
+                    rcmd_rden = 1'b1;
+                    rcnt_n    = rcmd_rdata[5:2];
+                    raddr_n   = rcmd_rdata[37:6];
+                    rincr_n   = rcmd_rdata[1];
+                    rstt_n    = R_SETUP;
+                end
+            end
+            R_SETUP: begin
+                r_paddr = raddr; r_psel = decode_psel(raddr);
+                rstt_n  = R_ENABLE;         // move to ENABLE next cycle
+            end
+            R_ENABLE: begin
+                r_paddr   = raddr; r_psel = decode_psel(raddr);
+                r_penable = 1'b1;
+                if (pready_i) begin
+                    rp_wren  = 1'b1;
+                    rp_wdata[DATA_WIDTH-1:0] = prdata_i;
+                    rp_wdata[DATA_WIDTH+1:DATA_WIDTH] = 2'b00;   // OKAY
+                    rp_wdata[DATA_WIDTH+2] = (rcnt == 0);
+                    if (rcnt == 0) begin
+                        rstt_n = R_IDLE;
+                    end else begin
+                        rcnt_n  = rcnt - 1;
+                        raddr_n = rincr ? (raddr + 4) : raddr;
+                        rstt_n  = R_SETUP;
+                    end
+                end
+            end
+        endcase
+    end
 
-always_comb begin
-    r_paddr='0; r_psel=2'b00; r_penable=0; rcmd_rden=0; rp_wren=0; rp_wdata='0;
-    rstt_n=rstt; rcnt_n=rcnt; raddr_n=raddr; rincr_n=rincr; r_id_n=r_id;
+    // ---------------------------------------------------------------------------
+    // APB bus multiplexer (SINGLE procedural driver for *_o signals)
+    // ---------------------------------------------------------------------------
+    logic [ADDR_WIDTH-1:0] paddr_r;
+    logic [DATA_WIDTH-1:0] pwdata_r;
+    logic [1:0]            psel_r;
+    logic                  pwrite_r, penable_r;
 
-    case(rstt)
-        R_IDLE: if(!rcmd_empty) begin rcmd_rden=1; rcnt_n=rcmd_rdata[5:2]; raddr_n=rcmd_rdata[38:7]; rincr_n=rcmd_rdata[1]; r_id_n=rcmd_rdata[6]; rstt_n=R_SETUP; end
-        R_SETUP: begin r_paddr=raddr; r_psel=decode_psel(raddr); rstt_n=R_ENABLE; end
-        R_ENABLE: begin r_paddr=raddr; r_psel=decode_psel(raddr); r_penable=1;
-            if(pready_i) begin rp_wren=1; rp_wdata={r_id, (rcnt==0), 2'b00, prdata_i};
-                if(rcnt==0) rstt_n=R_IDLE;
-                else begin rcnt_n=rcnt-1; raddr_n=rincr ? (raddr+4) : raddr; rstt_n=R_SETUP; end end end
-    endcase
-end
+    always_comb begin
+        // default all zeros
+        paddr_r   = '0; pwdata_r = '0; psel_r = 2'b00; pwrite_r = 1'b0; penable_r = 1'b0;
 
-// -------- APB bus mux (WRITE priority) --------
-logic [ADDR_WIDTH-1:0] paddr_r; logic [DATA_WIDTH-1:0] pwdata_r; logic [1:0] psel_r; logic pwrite_r, penable_r;
+        if (wst != W_IDLE) begin                        // WRITE owns bus
+            paddr_r   = w_paddr; pwdata_r = w_pwdata;
+            psel_r    = w_psel;  pwrite_r = w_pwrite; penable_r = w_penable;
+        end else if (rstt != R_IDLE) begin              // READ owns bus
+            paddr_r   = r_paddr; psel_r = r_psel;
+            pwrite_r  = 1'b0;   penable_r = r_penable;
+            // pwdata not used on reads
+        end
+    end
 
-always_comb begin paddr_r='0; pwdata_r='0; psel_r=2'b00; pwrite_r=0; penable_r=0;
-    if(wst!=W_IDLE) begin paddr_r=w_paddr; pwdata_r=w_pwdata; psel_r=w_psel; pwrite_r=w_pwrite; penable_r=w_penable; end
-    else if(rstt!=R_IDLE) begin paddr_r=r_paddr; psel_r=r_psel; pwrite_r=0; penable_r=r_penable; end end
+    assign paddr_o   = paddr_r;
+    assign pwdata_o  = pwdata_r;
+    assign psel_o    = psel_r;
+    assign pwrite_o  = pwrite_r;
+    assign penable_o = penable_r;
 
-assign paddr_o=paddr_r; assign pwdata_o=pwdata_r; assign psel_o=psel_r; assign pwrite_o=pwrite_r; assign penable_o=penable_r;
+    // ---------------------------------------------------------------------------
+    // AXI B/R channel outputs
+    // ---------------------------------------------------------------------------
+    assign bid_o    = awid_i;                   // single‑ID
+    assign bvalid_o = ~bq_empty;
+    assign bresp_o  = bq_rdata;
+    assign bq_rden  = bvalid_o & bready_i;
 
-// -------- AXI outputs --------
-assign bid_o    = bq_rdata[2];
-assign bresp_o  = bq_rdata[1:0];
-assign bvalid_o = ~bq_empty;  assign bq_rden = bvalid_o & bready_i;
-
-assign rid_o    = rp_rdata[RPKT_W-1];
-assign rlast_o  = rp_rdata[DATA_WIDTH+2];
-assign rresp_o  = rp_rdata[DATA_WIDTH+1:DATA_WIDTH];
-assign rdata_o  = rp_rdata[DATA_WIDTH-1:0];
-assign rvalid_o = ~rp_empty; assign rp_rden = rvalid_o & rready_i;
+    assign rid_o    = arid_i;
+    assign rvalid_o = ~rp_empty;
+    assign rdata_o  = rp_rdata[DATA_WIDTH-1:0];
+    assign rresp_o  = rp_rdata[DATA_WIDTH+1:DATA_WIDTH];
+    assign rlast_o  = rp_rdata[DATA_WIDTH+2];
+    assign rp_rden  = rvalid_o & rready_i;
 
 endmodule
