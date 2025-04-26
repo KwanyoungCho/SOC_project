@@ -76,6 +76,22 @@ module AXI2APB_TOP #(
     wire                        burst_done;
     wire [ADDR_WIDTH-1:0]       burst_addr;
     
+    // 주소 검증 로직: 유효하지 않은 주소가 들어오면 기본 주소로 변환
+    function [ADDR_WIDTH-1:0] validate_address;
+        input [ADDR_WIDTH-1:0] addr;
+        begin
+            if ((addr >= 32'h0001_F000 && addr <= 32'h0001_FFFF) ||
+                (addr >= 32'h0002_F000 && addr <= 32'h0002_FFFF))
+                validate_address = addr;
+            else
+                validate_address = 32'h0001_F000; // 기본적으로 SLV1 영역 시작 주소 사용
+        end
+    endfunction
+    
+    // 주소 검증 적용
+    wire [ADDR_WIDTH-1:0] validated_burst_addr;
+    assign validated_burst_addr = validate_address(burst_addr);
+    
     // AXI 프로토콜 처리기 인스턴스
     AXI_PROTOCOL_HANDLER #(
         .ADDR_WIDTH(ADDR_WIDTH),
@@ -153,7 +169,7 @@ module AXI2APB_TOP #(
         // 내부 인터페이스
         .wr_trans_i(wr_trans),
         .rd_trans_i(rd_trans),
-        .trans_addr_i(burst_addr),  // 버스트 관리자로부터 주소 수신
+        .trans_addr_i(validated_burst_addr),  // 검증된 주소 사용
         .trans_data_i(fifo_rdata),  // FIFO로부터 데이터 수신
         .read_data_o(read_data),
         .trans_done_o(trans_done),

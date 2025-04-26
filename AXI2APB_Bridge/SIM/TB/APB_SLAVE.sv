@@ -26,7 +26,13 @@ module APB_SLAVE
 
     // Byte-level write
     function void write_byte(int addr, input bit [7:0] wdata);
-        if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
+        // psel이 활성화되지 않은 슬레이브는 주소 0을 수신할 수 있으므로
+        // 주소가 0인 경우 무시
+        if (addr == 0) begin
+            // 아무 동작 없음
+            return;
+        end
+        else if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
             mem[addr - REGION_START] = wdata;
         end else begin
             $fatal(1, "[SLAVE] Write BYTE address out of range: 0x%0h", addr);
@@ -36,20 +42,28 @@ module APB_SLAVE
 
     // Word-level write
     function void write_word(int addr, input bit [31:0] wdata);
-        if ((addr + 3 >= (REGION_START + REGION_SIZE)) || (addr < REGION_START)) begin
+        // 주소가 0인 경우 무시
+        if (addr == 0) begin
+            return;
+        end
+        else if ((addr + 3 >= (REGION_START + REGION_SIZE)) || (addr < REGION_START)) begin
             $fatal(1, "[SLAVE] Write WORD address out of range: 0x%0h", addr);
             return;
         end
 
         for (int i = 0; i < 4; i++) begin
-           
             write_byte(addr + i, wdata[i*8 +: 8]);
         end
     endfunction
 
     // Byte-level read
     function bit [7:0] read_byte(int addr);
-        if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
+        // psel이 활성화되지 않은 슬레이브는 주소 0을 수신할 수 있으므로
+        // 주소가 0인 경우 기본값(0)을 반환하여 에러를 방지
+        if (addr == 0) begin
+            return 8'h00;
+        end
+        else if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
             return mem[addr - REGION_START];
         end else begin
             $fatal(1, "[SLAVE] Read BYTE address out of range: 0x%0h", addr);

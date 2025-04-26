@@ -141,7 +141,14 @@ module APB_PROTOCOL_HANDLER #(
                 
                 SETUP: begin
                     // APB 셋업 단계
-                    paddr_o <= addr_reg;
+                    // 유효한 주소 범위 검증
+                    if ((addr_reg >= 32'h0001_F000 && addr_reg <= 32'h0001_FFFF) ||
+                        (addr_reg >= 32'h0002_F000 && addr_reg <= 32'h0002_FFFF)) begin
+                        paddr_o <= addr_reg;
+                    end else begin
+                        paddr_o <= 32'h0001_F000; // 기본 주소
+                    end
+                    
                     pwrite_o <= wr_trans_reg;
                     psel_o <= slave_select(addr_reg);
                     
