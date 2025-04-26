@@ -194,7 +194,7 @@ module AXI2APB_TOP #(
         .start_addr_i(trans_addr),
         
         // 제어 및 상태
-        .burst_start_i(wr_trans || rd_trans),
+        .burst_start_i(burst_start),
         .transfer_done_i(trans_done),
         .burst_done_o(burst_done),
         .curr_addr_o(burst_addr)
@@ -206,7 +206,7 @@ module AXI2APB_TOP #(
         .DATA_WIDTH(DATA_WIDTH)
     ) fifo_inst (
         .clk(clk),
-        .rst_n(rst_n),
+        .rst_n(rst_n),  // 기본 리셋 사용
         .full_o(fifo_full),
         .wren_i(fifo_wren),
         .wdata_i(wdata_i),
@@ -214,5 +214,8 @@ module AXI2APB_TOP #(
         .rden_i(fifo_rden),
         .rdata_o(fifo_rdata)
     );
+    
+    // 버스트 시작 신호 생성
+    assign burst_start = wr_trans || rd_trans;
 
 endmodule 

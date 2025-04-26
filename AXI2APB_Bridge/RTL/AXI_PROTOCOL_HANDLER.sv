@@ -91,7 +91,7 @@ module AXI_PROTOCOL_HANDLER #(
         awready_o = 1'b0;
         wready_o = 1'b0;
         arready_o = 1'b0;
-        fifo_wren_o = 1'b0;
+        fifo_wren_o = 1'b0;  // 기본적으로 FIFO 쓰기 비활성화
         
         case (axi_state)
             AXI_IDLE: begin
@@ -126,11 +126,12 @@ module AXI_PROTOCOL_HANDLER #(
             end
             
             WRITE_DATA: begin
-                wready_o = !fifo_full;  // FIFO가 가득 차지 않았을 때만 준비 상태
+                // FIFO가 가득 차지 않았을 때만 wready 신호 활성화
+                wready_o = !fifo_full;
                 
-                // wvalid_i가 활성화되고 wready_o가 활성화된 경우에만 FIFO에 쓰기
+                // wvalid와 wready가 모두 활성화되었을 때만 FIFO에 쓰기
                 if (wvalid_i && wready_o) begin
-                    fifo_wren_o = 1'b1;  // FIFO 쓰기 활성화
+                    fifo_wren_o = 1'b1;
                     
                     if (wlast_i) begin
                         axi_next_state = WRITE_RESP;
@@ -263,6 +264,7 @@ module AXI_PROTOCOL_HANDLER #(
                 
                 WRITE_DATA: begin
                     if (wvalid_i && wready_o) begin
+                        // 쓰기 데이터 설정 및 FIFO에 데이터 저장
                         trans_data_o <= wdata_i;
                         
                         if (wlast_i) begin

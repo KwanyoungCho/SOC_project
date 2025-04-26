@@ -83,7 +83,10 @@ module APB_PROTOCOL_HANDLER #(
             end
             
             FIFO_READ: begin
-                fifo_rden_o = 1'b1;  // FIFO 읽기 활성화
+                // FIFO 읽기 활성화
+                fifo_rden_o = 1'b1;
+                
+                // 다음 상태로 전환
                 apb_next_state = SETUP;
             end
             
@@ -94,11 +97,13 @@ module APB_PROTOCOL_HANDLER #(
             ACCESS: begin
                 if (pready_i) begin
                     if (burst_cnt < burst_len_i) begin
-                        // 버스트 진행 중 - 추가 전송
-                        if (wr_trans_reg)
-                            apb_next_state = FIFO_READ;  // 다음 데이터를 FIFO에서 읽기
-                        else
-                            apb_next_state = SETUP;  // 읽기는 바로 SETUP으로
+                        // 버스트 진행 중 - 다음 단계로 이동
+                        if (wr_trans_reg) begin
+                            // 쓰기인 경우 즉시 다음 데이터를 읽어옴
+                            apb_next_state = FIFO_READ;
+                        end else begin
+                            apb_next_state = SETUP;
+                        end
                     end else begin
                         // 트랜잭션 완료
                         apb_next_state = DONE;
@@ -147,12 +152,14 @@ module APB_PROTOCOL_HANDLER #(
                 burst_cnt <= 4'b0000;
             end
             
+            // 트랜잭션 완료 신호 기본적으로 비활성화
+            trans_done_o <= 1'b0;
+            
             // 상태에 따른 APB 신호 업데이트
             case (apb_state)
                 IDLE: begin
                     penable_o <= 1'b0;
                     psel_o <= 2'b00;
-                    trans_done_o <= 1'b0;
                     trans_error_o <= 1'b0;
                 end
                 
@@ -180,7 +187,6 @@ module APB_PROTOCOL_HANDLER #(
                     end
                     
                     penable_o <= 1'b0;
-                    trans_done_o <= 1'b0;
                 end
                 
                 ACCESS: begin
@@ -198,12 +204,10 @@ module APB_PROTOCOL_HANDLER #(
                         end
                         
                         if (burst_cnt < burst_len_i) begin
-                            // 버스트 계속
+                            // 버스트 계속 - 주소 업데이트
                             addr_reg <= addr_reg + 4;  // 4바이트씩 증가 (32비트 전송)
                             burst_cnt <= burst_cnt + 1;
                         end
-                    end else begin
-                        trans_done_o <= 1'b0;
                     end
                 end
                 
@@ -211,7 +215,6 @@ module APB_PROTOCOL_HANDLER #(
                     // 트랜잭션 완료
                     wr_trans_reg <= 1'b0;
                     rd_trans_reg <= 1'b0;
-                    trans_done_o <= 1'b0;
                 end
             endcase
         end
