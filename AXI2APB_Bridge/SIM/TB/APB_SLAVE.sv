@@ -26,63 +26,42 @@ module APB_SLAVE
 
     // Byte-level write
     function void write_byte(int addr, input bit [7:0] wdata);
-        // psel이 활성화되지 않은 슬레이브는 주소 0을 수신할 수 있으므로
-        // 주소가 0인 경우 무시
-        if (addr == 0) begin
-            // 아무 동작 없음
-            return;
-        end
-        else if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
+        if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
             mem[addr - REGION_START] = wdata;
         end else begin
-            $display("[SLAVE] Warning: Write BYTE address out of range: 0x%0h", addr);
+            $fatal(1, "[SLAVE] Write BYTE address out of range: 0x%0h", addr);
         end
     endfunction
 
 
     // Word-level write
     function void write_word(int addr, input bit [31:0] wdata);
-        // 주소가 0인 경우 무시
-        if (addr == 0) begin
-            return;
-        end
-        else if ((addr + 3 >= (REGION_START + REGION_SIZE)) || (addr < REGION_START)) begin
-            $display("[SLAVE] Warning: Write WORD address out of range: 0x%0h", addr);
+        if ((addr + 3 >= (REGION_START + REGION_SIZE)) || (addr < REGION_START)) begin
+            $fatal(1, "[SLAVE] Write WORD address out of range: 0x%0h", addr);
             return;
         end
 
         for (int i = 0; i < 4; i++) begin
+           
             write_byte(addr + i, wdata[i*8 +: 8]);
         end
     endfunction
 
     // Byte-level read
     function bit [7:0] read_byte(int addr);
-        // psel이 활성화되지 않은 슬레이브는 주소 0을 수신할 수 있으므로
-        // 주소가 0인 경우 기본값(0)을 반환하여 에러를 방지
-        if (addr == 0) begin
-            return 8'h00;
-        end
-        else if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
+        if ((addr >= REGION_START) && (addr < (REGION_START + REGION_SIZE))) begin
             return mem[addr - REGION_START];
         end else begin
-            $display("[SLAVE] Warning: Read BYTE address out of range: 0x%0h, returning 0", addr);
+            $fatal(1, "[SLAVE] Read BYTE address out of range: 0x%0h", addr);
             return 8'h00;
         end
     endfunction
 
     // Word-level read
     function bit [31:0] read_word(int addr);
-        bit [31:0] result;
-        if (addr == 0 || (addr < REGION_START) || (addr + 3 >= REGION_START + REGION_SIZE)) begin
-            $display("[SLAVE] Warning: Read WORD address out of range: 0x%0h, returning 0", addr);
-            return 32'h00000000;
-        end
-        
         for (int i = 0; i < 4; i++) begin
-            result[i*8 +: 8] = read_byte(addr + i);
+            read_word[i*8 +: 8] = read_byte(addr + i);
         end
-        return result;
     endfunction
 
     // FSM states
@@ -171,7 +150,7 @@ module APB_SLAVE
                         apb_wdata = apb.pwdata;
                         axi_wdata_mbx.try_get(axi_wdata);
                         if (axi_wdata != apb_wdata) begin
-                            $display("Note: AXI MASTER WRITE DATA=0x%08x, APB WRITE DATA=0x%08x", axi_wdata, apb_wdata);
+                            $fatal(1, "Mismatch! AXI MASTER WRITE DATA=0x%08x, APB WRITE DATA=0x%08x", axi_wdata, apb_wdata);
                         end
                     end
                 end
