@@ -68,7 +68,7 @@ module AXI2APB_TOP #(
     wire [CMD_WIDTH-1:0] cmdfifo_wdata, cmdfifo_rdata;
 
     BRIDGE_FIFO #(
-        .DEPTH_LG2 (CMD_DEPTH_LG2),     // 4‑deep
+        .DEPTH_LG2 (4),     // 4‑deep
         .DATA_WIDTH(CMD_WIDTH)
     ) u_cmd_fifo (
         .clk       (clk),
@@ -99,7 +99,7 @@ module AXI2APB_TOP #(
     wire              wfifo_wren, wfifo_rden;
 
     BRIDGE_FIFO #(
-        .DEPTH_LG2 (WFIFO_DEPTH_LG2),   // 16‑deep
+        .DEPTH_LG2 (4),   // 16‑deep
         .DATA_WIDTH(DATA_WIDTH)
     ) u_wdata_fifo (
         .clk       (clk),
