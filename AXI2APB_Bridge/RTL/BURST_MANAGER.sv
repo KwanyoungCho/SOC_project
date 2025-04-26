@@ -23,10 +23,32 @@ module BURST_MANAGER #(
     localparam BURST_INCR  = 2'b01;  // 증가 주소
     localparam BURST_WRAP  = 2'b10;  // 랩 어라운드 주소
     
+    // 주소 범위 상수
+    localparam SLV1_START = 32'h0001_F000;
+    localparam SLV1_END   = 32'h0001_FFFF;
+    localparam SLV2_START = 32'h0002_F000;
+    localparam SLV2_END   = 32'h0002_FFFF;
+    
     // 내부 레지스터
     reg [3:0]                   transfer_count;
     reg [ADDR_WIDTH-1:0]        next_addr;
     reg [2:0]                   addr_incr_bytes;
+    
+    // 주소가 유효한 범위인지 확인하고 적절한 주소를 반환하는 함수
+    function [ADDR_WIDTH-1:0] get_valid_addr;
+        input [ADDR_WIDTH-1:0] addr;
+        begin
+            // 주소가 SLV1 범위에 있는 경우
+            if (addr >= SLV1_START && addr <= SLV1_END)
+                get_valid_addr = addr;
+            // 주소가 SLV2 범위에 있는 경우
+            else if (addr >= SLV2_START && addr <= SLV2_END)
+                get_valid_addr = addr;
+            // 주소가 유효한 범위 밖에 있는 경우 기본 주소로 설정
+            else
+                get_valid_addr = SLV1_START;
+        end
+    endfunction
     
     // 버스트 크기에 따른 주소 증가량 계산
     always_comb begin
@@ -54,15 +76,8 @@ module BURST_MANAGER #(
                 // 새 버스트 시작
                 transfer_count <= 4'b0000;
                 // 유효한 주소인지 확인하고 설정
-                if ((start_addr_i >= 32'h0001_F000 && start_addr_i <= 32'h0001_FFFF) ||
-                    (start_addr_i >= 32'h0002_F000 && start_addr_i <= 32'h0002_FFFF)) begin
-                    curr_addr_o <= start_addr_i;
-                    next_addr <= start_addr_i;
-                end else begin
-                    // 유효하지 않은 주소인 경우 기본 슬레이브 1 주소 사용
-                    curr_addr_o <= 32'h0001_F000;
-                    next_addr <= 32'h0001_F000;
-                end
+                curr_addr_o <= get_valid_addr(start_addr_i);
+                next_addr <= get_valid_addr(start_addr_i);
             end else if (transfer_done_i) begin
                 // 전송 완료 처리
                 transfer_count <= transfer_count + 1;
@@ -71,13 +86,42 @@ module BURST_MANAGER #(
                 case (burst_type_i)
                     BURST_FIXED: begin
                         // 고정 주소 - 변경 없음
-                        curr_addr_o <= start_addr_i;
+                        curr_addr_o <= get_valid_addr(start_addr_i);
                     end
                     
                     BURST_INCR: begin
-                        // 증가 주소
-                        next_addr <= next_addr + addr_incr_bytes;
-                        curr_addr_o <= next_addr;
+                        // 증가 주소 - 범위 검사
+                        reg [ADDR_WIDTH-1:0] temp_addr;
+                        temp_addr = next_addr + addr_incr_bytes;
+                        
+                        // 슬레이브 영역 확인
+                        if (next_addr >= SLV1_START && next_addr <= SLV1_END) begin
+                            // SLV1 영역 - 계속 이 영역에 있는지 확인
+                            if (temp_addr > SLV1_END) begin
+                                // 영역을 벗어나면 영역 시작 주소로 설정
+                                next_addr <= SLV1_START;
+                                curr_addr_o <= SLV1_START;
+                            end else begin
+                                next_addr <= temp_addr;
+                                curr_addr_o <= temp_addr;
+                            end
+                        end
+                        else if (next_addr >= SLV2_START && next_addr <= SLV2_END) begin
+                            // SLV2 영역 - 계속 이 영역에 있는지 확인
+                            if (temp_addr > SLV2_END) begin
+                                // 영역을 벗어나면 영역 시작 주소로 설정
+                                next_addr <= SLV2_START;
+                                curr_addr_o <= SLV2_START;
+                            end else begin
+                                next_addr <= temp_addr;
+                                curr_addr_o <= temp_addr;
+                            end
+                        end
+                        else begin
+                            // 유효하지 않은 영역에 있는 경우 기본 주소 사용
+                            next_addr <= SLV1_START;
+                            curr_addr_o <= SLV1_START;
+                        end
                     end
                     
                     BURST_WRAP: begin
@@ -85,20 +129,24 @@ module BURST_MANAGER #(
                         // 랩 경계 계산
                         reg [ADDR_WIDTH-1:0] wrap_boundary;
                         reg [ADDR_WIDTH-1:0] wrap_mask;
+                        reg [ADDR_WIDTH-1:0] temp_addr;
                         
                         // 랩 크기 = (burst_len + 1) * 전송 크기
                         wrap_mask = ((burst_len_i + 1) * addr_incr_bytes) - 1;
                         wrap_boundary = start_addr_i & ~wrap_mask;
                         
                         // 다음 주소 계산 (랩 경계 내에서 순환)
-                        next_addr <= wrap_boundary | ((next_addr + addr_incr_bytes) & wrap_mask);
-                        curr_addr_o <= next_addr;
+                        temp_addr = wrap_boundary | ((next_addr + addr_incr_bytes) & wrap_mask);
+                        next_addr <= get_valid_addr(temp_addr);
+                        curr_addr_o <= get_valid_addr(temp_addr);
                     end
                     
                     default: begin
-                        // 증가 주소 (기본값)
-                        next_addr <= next_addr + addr_incr_bytes;
-                        curr_addr_o <= next_addr;
+                        // 증가 주소 (기본값) - 범위 검사
+                        reg [ADDR_WIDTH-1:0] temp_addr;
+                        temp_addr = next_addr + addr_incr_bytes;
+                        next_addr <= get_valid_addr(temp_addr);
+                        curr_addr_o <= get_valid_addr(temp_addr);
                     end
                 endcase
                 
