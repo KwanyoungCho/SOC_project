@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+[Project1. AXI2APB_Bridge_2025.pdf](mdc:Project1. AXI2APB_Bridge_2025.pdf) 이 프로젝트를 구현하고 있음 항상 참고해서 구현할것
+원하는 대로 동작하는 지 [BRIDGE_TOP_TB.sv](mdc:SIM/TB/BRIDGE_TOP_TB.sv) 이 테스트 벤치를 확인해서 이에 맞게 구현할 것
+
