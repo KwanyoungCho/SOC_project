@@ -76,6 +76,21 @@ module AXI2APB_TOP #(
     wire                        burst_done;
     wire [ADDR_WIDTH-1:0]       burst_addr;
     
+    // FIFO 리셋을 위한 엣지 감지
+    reg                         wr_trans_d;
+    wire                        fifo_reset;
+    
+    // wr_trans 신호의 상승 엣지 감지
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            wr_trans_d <= 1'b0;
+        else
+            wr_trans_d <= wr_trans;
+    end
+    
+    // 새 쓰기 트랜잭션이 시작될 때 FIFO 리셋
+    assign fifo_reset = wr_trans && !wr_trans_d;
+    
     // 주소 검증 로직: 유효하지 않은 주소가 들어오면 기본 주소로 변환
     function [ADDR_WIDTH-1:0] validate_address;
         input [ADDR_WIDTH-1:0] addr;
@@ -206,7 +221,7 @@ module AXI2APB_TOP #(
         .DATA_WIDTH(DATA_WIDTH)
     ) fifo_inst (
         .clk(clk),
-        .rst_n(rst_n),  // 기본 리셋 사용
+        .rst_n(rst_n && !fifo_reset),  // 새 버스트 시작 시 FIFO 리셋
         .full_o(fifo_full),
         .wren_i(fifo_wren),
         .wdata_i(wdata_i),

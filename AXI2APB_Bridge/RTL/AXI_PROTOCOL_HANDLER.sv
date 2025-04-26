@@ -133,7 +133,19 @@ module AXI_PROTOCOL_HANDLER #(
                 if (wvalid_i && wready_o) begin
                     fifo_wren_o = 1'b1;
                     
+                    // 쓰기 데이터 설정 및 FIFO에 데이터 저장
+                    trans_data_o <= wdata_i;
+                    
+                    // 새 버스트 시작 시 trans_active를 1로 설정
+                    if (burst_cnt == 4'b0000) begin
+                        trans_active <= 1'b1;
+                    end
+                    
+                    // 버스트 카운터 증가
+                    burst_cnt <= burst_cnt + 1;
+                    
                     if (wlast_i) begin
+                        trans_active <= 1'b0;
                         axi_next_state = WRITE_RESP;
                     end
                 end
@@ -266,6 +278,14 @@ module AXI_PROTOCOL_HANDLER #(
                     if (wvalid_i && wready_o) begin
                         // 쓰기 데이터 설정 및 FIFO에 데이터 저장
                         trans_data_o <= wdata_i;
+                        
+                        // 새 버스트 시작 시 trans_active를 1로 설정
+                        if (burst_cnt == 4'b0000) begin
+                            trans_active <= 1'b1;
+                        end
+                        
+                        // 버스트 카운터 증가
+                        burst_cnt <= burst_cnt + 1;
                         
                         if (wlast_i) begin
                             trans_active <= 1'b0;

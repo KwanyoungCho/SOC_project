@@ -83,7 +83,7 @@ module APB_PROTOCOL_HANDLER #(
             end
             
             FIFO_READ: begin
-                // FIFO 읽기 활성화
+                // FIFO 읽기를 적극적으로 활성화
                 fifo_rden_o = 1'b1;
                 
                 // 다음 상태로 전환
@@ -99,7 +99,7 @@ module APB_PROTOCOL_HANDLER #(
                     if (burst_cnt < burst_len_i) begin
                         // 버스트 진행 중 - 다음 단계로 이동
                         if (wr_trans_reg) begin
-                            // 쓰기인 경우 즉시 다음 데이터를 읽어옴
+                            // 쓰기인 경우 바로 다음 데이터를 읽음
                             apb_next_state = FIFO_READ;
                         end else begin
                             apb_next_state = SETUP;
